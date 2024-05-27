@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package common;
+
+
+
+message Read_Struct{
+    uint64 key = 1;
+    uint32 table_id = 2;
+    optional string value = 3;
+    optional uint64 timestamp = 4;
+}
+
+enum TxnOP {
+    Execute = 0;
+    Validate = 1;
+    Commit = 2;
+    Abort = 3;
+    Accept = 4;
+}
+
+message Msg {
+    uint64 txn_id = 1;
+    repeated common.Read_Struct read_set = 2;
+    repeated common.Read_Struct write_set = 3;
+    repeated common.Read_Struct insert = 4;
+    repeated common.Read_Struct delete = 5;
+    common.TxnOP op = 6;
+    bool success = 7;
+    bool read_only = 8;
+    optional uint64 ts = 9;
+    repeated uint64 deps = 10;
+}
+
+
+
+message Echo {
+    bool success = 1;
+}
+
+message Throughput {
+    uint64 committed = 1;
+}
+
+message Latencies {
+    repeated uint64 latency = 1;
+}
+
+message TS{
+    uint64 ts = 1;
+}
+service DataService {
+    rpc communication(Msg) returns (Msg) {} 
+}
+service CtoService {
+    rpc get_start_ts(Echo) returns(TS) {}
+    rpc set_commit_ts(TS) returns(Echo) {}
+}
+
+service ThroughputStatisticsService {
+    rpc get(Echo) returns (Throughput) {}
+}

@@ -1,0 +1,19 @@
+[package]
+name = "workload"
+version = "0.1.0"
+authors = ["wuhao2016 <whaohit@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+common = {path = "../common"}
+rpc = {path = "../rpc"}
+tokio = { version = "1.0", features = ["full"] }
+tonic = "0.4.3"
+tokio-stream = "0.1.6"
+tracing = { version = "0.1", features = ["log"] }
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.8"
+serde_json = "1.0"

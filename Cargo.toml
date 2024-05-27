@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "src/rpc",
+    "src/common",
+    "src/server",
+    "src/workload",
+]
