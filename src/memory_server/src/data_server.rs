@@ -192,7 +192,7 @@ impl DataServer {
                 exec.run().await;
             });
         }
-        if dtx_type == DtxType::janus || dtx_type == DtxType::rjanus {
+        if dtx_type == DtxType::janus {
             let mut dep = DepGraph::new(dep_recv);
             tokio::spawn(async move {
                 dep.run().await;

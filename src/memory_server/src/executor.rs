@@ -1,21 +1,14 @@
 use common::{get_currenttime_micros, get_currenttime_millis, get_txnid, CoordnatorMsg, DtxType};
 use rpc::common::{data_service_client::DataServiceClient, Msg, TxnOp};
-use std::{
-    cmp::{max, min},
-    ops::Deref,
-    time::Duration,
-};
-use tokio::{
-    sync::mpsc::{unbounded_channel, Sender, UnboundedReceiver, UnboundedSender},
-    time::Instant,
-};
+use std::{cmp::min, time::Duration};
+use tokio::sync::mpsc::{unbounded_channel, Sender, UnboundedReceiver};
 use tokio::{sync::oneshot::Sender as OneShotSender, time::sleep};
 use tonic::transport::Channel;
 
 use crate::{
     data::{
-        self, delete, get_deps, get_read_only, get_read_set, insert, lock_write_set,
-        release_read_set, releass_locks, update_and_release_locks, validate,
+        delete, get_deps, get_read_only, get_read_set, insert, lock_write_set, release_read_set,
+        releass_locks, update_and_release_locks, validate,
     },
     data_server::{MAX_COMMIT_TS, PEER},
     dep_graph::{Node, TXNS},
@@ -79,12 +72,7 @@ impl Executor {
                         rpc::common::TxnOp::Execute => {
                             let mut reply = coor_msg.msg.clone();
                             let ts = coor_msg.msg.ts();
-                            if coor_msg.msg.read_only
-                                && (self.dtx_type == DtxType::r2pl
-                                    || self.dtx_type == DtxType::rjanus
-                                    || self.dtx_type == DtxType::rocc
-                                    || self.dtx_type == DtxType::spanner)
-                            {
+                            if coor_msg.msg.read_only && (self.dtx_type == DtxType::spanner) {
                                 let read_set = coor_msg.msg.read_set.clone();
                                 // need wait
                                 let local_clock = if self.geo {
@@ -143,9 +131,7 @@ impl Executor {
                                     }
                                 }
                             } else {
-                                if self.dtx_type == DtxType::janus
-                                    || self.dtx_type == DtxType::rjanus
-                                {
+                                if self.dtx_type == DtxType::janus {
                                     // init node
                                     let txn_id = coor_msg.msg.txn_id;
                                     let (client_id, index) = get_txnid(txn_id);
@@ -242,7 +228,7 @@ impl Executor {
                                 }
                             }
                             let mut reply = Msg::default();
-                            if self.dtx_type == DtxType::janus || self.dtx_type == DtxType::rjanus {
+                            if self.dtx_type == DtxType::janus {
                                 // insert callback to node
                                 let txn_id = coor_msg.msg.txn_id;
                                 let (client_id, index) = get_txnid(txn_id);
@@ -257,9 +243,7 @@ impl Executor {
 
                                 // println!("commit cid={},index={}", client_id, index);
                             } else {
-                                if self.dtx_type == DtxType::r2pl
-                                    || self.dtx_type == DtxType::spanner
-                                {
+                                if self.dtx_type == DtxType::spanner {
                                     release_read_set(
                                         coor_msg.msg.read_set.clone(),
                                         coor_msg.msg.txn_id,
@@ -284,14 +268,14 @@ impl Executor {
                         }
                         rpc::common::TxnOp::Abort => {
                             // release the lock
-                            if self.dtx_type == DtxType::r2pl || self.dtx_type == DtxType::spanner {
+                            if self.dtx_type == DtxType::spanner {
                                 release_read_set(
                                     coor_msg.msg.read_set.clone(),
                                     coor_msg.msg.txn_id,
                                 )
                                 .await;
                             }
-                            if self.dtx_type == DtxType::janus || self.dtx_type == DtxType::rjanus {
+                            if self.dtx_type == DtxType::janus {
                                 // mark as executed
                                 let txn_id = coor_msg.msg.txn_id;
                                 let (client_id, index) = get_txnid(txn_id);

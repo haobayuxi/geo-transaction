@@ -115,13 +115,8 @@ pub struct ConfigInFile {
 
 #[derive(PartialEq, Eq, Deserialize, Clone, Debug, Copy)]
 pub enum DtxType {
-    rocc,
-    r2pl,
     spanner,
-    ford,
-    meerkat,
     janus,
-    rjanus,
 }
 
 #[derive(Clone, Serialize, Deserialize, Copy)]
