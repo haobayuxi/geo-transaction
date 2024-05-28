@@ -117,6 +117,7 @@ pub struct ConfigInFile {
 pub enum DtxType {
     spanner,
     janus,
+    ocean_vista,
 }
 
 #[derive(Clone, Serialize, Deserialize, Copy)]

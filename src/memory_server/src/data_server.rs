@@ -7,7 +7,6 @@ use std::{
     time::Duration,
 };
 
-use chrono::Local;
 use common::{
     get_currenttime_millis, get_txnid, txn::connect_to_peer, Config, CoordnatorMsg, DbType,
     DtxType, Tuple,
@@ -15,7 +14,7 @@ use common::{
 use rpc::common::{
     data_service_client::DataServiceClient,
     data_service_server::{DataService, DataServiceServer},
-    Echo, Msg, Throughput, TxnOp,
+    Echo, Msg, TxnOp,
 };
 use tokio::{
     sync::{

@@ -49,13 +49,13 @@ impl Executor {
 
     async fn accept(&mut self, msg: Msg, call_back: OneShotSender<Msg>) {
         unsafe {
-            let data_clients = PEER.clone();
+            // let data_clients = PEER.clone();
             tokio::spawn(async move {
                 let mut accept = msg.clone();
                 accept.op = TxnOp::Accept.into();
                 // broadcast lock
                 // let start = Instant::now();
-                let result = sync_broadcast(accept.clone(), data_clients).await;
+                let result = sync_broadcast(accept.clone()).await;
 
                 // let end_time = start.elapsed().as_millis();
                 // println!("{}accept{}", accept.txn_id, end_time);
@@ -254,7 +254,7 @@ impl Executor {
                                     let commit: Msg = coor_msg.msg.clone();
                                     unsafe {
                                         tokio::spawn(async move {
-                                            sync_broadcast(commit, PEER.clone());
+                                            sync_broadcast(commit);
                                         });
                                     }
                                 }
@@ -327,8 +327,9 @@ impl Executor {
     }
 }
 
-async fn sync_broadcast(msg: Msg, data_clients: Vec<DataServiceClient<Channel>>) -> Vec<Msg> {
+async fn sync_broadcast(msg: Msg) -> Vec<Msg> {
     let mut result = Vec::new();
+    let data_clients = unsafe { PEER.clone() };
     let (sender, mut recv) = unbounded_channel::<Msg>();
     for iter in data_clients.iter() {
         let mut client = iter.clone();

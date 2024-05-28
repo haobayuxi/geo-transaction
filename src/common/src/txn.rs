@@ -256,6 +256,26 @@ impl DtxCoordinator {
                 }
             }
             result = replies[0].read_set.clone();
+        } else if self.dtx_type == DtxType::ocean_vista {
+            //
+            let execute = Msg {
+                txn_id: self.txn_id,
+                read_set: self.read_to_execute.clone(),
+                write_set,
+                op: TxnOp::Execute.into(),
+                success: true,
+                ts: Some(self.commit_ts),
+                deps: Vec::new(),
+                read_only: false,
+                insert: Vec::new(),
+                delete: Vec::new(),
+            };
+            let client = self
+                .data_clients
+                .get_mut(preferred_server_id as usize)
+                .unwrap();
+
+            let reply: Msg = client.communication(execute).await.unwrap().into_inner();
         }
 
         self.read_set.extend(result.clone());
