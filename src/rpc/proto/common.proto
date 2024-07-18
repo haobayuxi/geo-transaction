@@ -60,3 +60,7 @@ service CtoService {
 service ThroughputStatisticsService {
     rpc get(Echo) returns (Throughput) {}
 }
+
+service GossipService {
+    rpc communication(Ts) returns () {} 
+}

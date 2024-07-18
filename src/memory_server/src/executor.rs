@@ -5,6 +5,7 @@ use tokio::sync::mpsc::{unbounded_channel, Sender, UnboundedReceiver};
 use tokio::{sync::oneshot::Sender as OneShotSender, time::sleep};
 use tonic::transport::Channel;
 
+use crate::data_server::{SAFE, WAITING};
 use crate::{
     data::{
         delete, get_deps, get_read_only, get_read_set, insert, lock_write_set, release_read_set,
@@ -106,39 +107,59 @@ impl Executor {
                                             coor_msg.call_back.send(reply);
                                         }
                                     }
-                                    DtxType::janus => {}
+                                    DtxType::janus => {
+                                        let txn_id = coor_msg.msg.txn_id;
+                                        let (client_id, index) = get_txnid(txn_id);
+                                        let mut last_index = TXNS[client_id as usize].len();
+                                        while index >= last_index as u64 {
+                                            let node = Node::default();
+                                            TXNS[client_id as usize].push(node);
+                                            last_index += 1;
+                                        }
+                                        let node = Node::new(coor_msg.msg.clone());
+                                        if TXNS[client_id as usize].len() as u64 == index + 1 {
+                                            //
+                                            TXNS[client_id as usize][index as usize] = node;
+                                        } else {
+                                            TXNS[client_id as usize].push(node);
+                                        }
+                                        let (success, deps, read_results) =
+                                            get_deps(coor_msg.msg).await;
+                                        reply.success = success;
+                                        reply.deps = deps.clone();
+                                        reply.read_set = read_results;
+                                        coor_msg.call_back.send(reply);
+                                    }
                                     DtxType::ocean_vista => {
                                         // wait for the commit ts > read only ts
-                                    }
-                                    DtxType::us => {
-                                        if ts > MAX_COMMIT_TS && ts > local_clock {
-                                            // local wait
-                                            let wait_time =
-                                                min(ts - MAX_COMMIT_TS, ts - local_clock);
-                                            let geo = self.geo;
-                                            tokio::spawn(async move {
-                                                // println!("wait time {}", wait_time);
-                                                if geo {
-                                                    sleep(Duration::from_millis(wait_time)).await;
-                                                } else {
-                                                    sleep(Duration::from_micros(wait_time)).await;
-                                                }
-                                                let (success, read_result) =
-                                                    get_read_only(read_set).await;
-                                                reply.success = success;
-                                                reply.read_set = read_result;
-
-                                                coor_msg.call_back.send(reply);
-                                            });
-                                        } else {
+                                        let mut new_msg = coor_msg.msg.clone();
+                                        new_msg.ts = Some(get_currenttime_millis());
+                                        if SAFE > new_msg.ts() {
+                                            // execute
                                             let (success, read_result) =
-                                                get_read_only(read_set).await;
+                                                get_read_only(coor_msg.msg.read_set.clone()).await;
                                             reply.success = success;
-                                            reply.read_set = read_result;
-
                                             coor_msg.call_back.send(reply);
+                                        } else {
+                                            // insert into waiting list
+                                            WAITING.insert(new_msg.ts(), new_msg);
                                         }
                                     }
+                                    DtxType::mercury => {
+                                        let mut new_msg = coor_msg.msg.clone();
+                                        new_msg.ts = Some(get_currenttime_millis());
+                                        if SAFE > new_msg.ts() {
+                                            // execute
+                                            let (success, read_result) =
+                                                get_read_only(coor_msg.msg.read_set.clone()).await;
+                                            reply.success = success;
+                                            coor_msg.call_back.send(reply);
+                                        } else {
+                                            // insert into waiting list
+                                            WAITING.insert(new_msg.ts(), new_msg);
+                                        }
+                                    }
+                                    DtxType::cockroachdb => {}
                                 }
                             } else {
                                 match self.dtx_type {
@@ -200,9 +221,20 @@ impl Executor {
                                     }
                                     DtxType::ocean_vista => {
                                         // broadcast to all to accept
-                                        
+                                        let mut new_msg = coor_msg.msg.clone();
+                                        new_msg.ts = Some(get_currenttime_millis());
+                                        self.accept(new_msg, coor_msg.call_back).await;
                                     }
-                                    DtxType::us => {}
+                                    DtxType::mercury => {
+                                        let mut new_msg = coor_msg.msg.clone();
+                                        new_msg.ts = Some(get_currenttime_millis());
+                                        self.accept(new_msg, coor_msg.call_back).await;
+                                    }
+                                    DtxType::cockroachdb => {
+                                        let mut new_msg = coor_msg.msg.clone();
+                                        // check conflict ts
+                                        self.accept(new_msg, coor_msg.call_back).await;
+                                    }
                                 }
                             }
                         }
@@ -292,19 +324,30 @@ impl Executor {
                             coor_msg.call_back.send(reply);
                         }
                         rpc::common::TxnOp::Accept => {
-                            let commit_ts = coor_msg.msg.ts();
+                            //
                             unsafe {
-                                if MAX_COMMIT_TS < commit_ts {
-                                    MAX_COMMIT_TS = commit_ts;
+                                if self.dtx_type == DtxType::ocean_vista {
+                                    // insert into waiting list
+                                    WAITING.insert(coor_msg.msg.ts(), coor_msg);
+                                } else if self.dtx_type == DtxType::mercury {
+                                    // insert into waiting list
+                                    WAITING.insert(coor_msg.msg.ts(), coor_msg);
+                                } else {
+                                    let commit_ts = coor_msg.msg.ts();
+                                    if MAX_COMMIT_TS < commit_ts {
+                                        MAX_COMMIT_TS = commit_ts;
+                                    }
+
+                                    let mut reply = Msg::default();
+                                    reply.success = true;
+                                    if self.dtx_type == DtxType::spanner {
+                                        // lock the write set
+                                        lock_write_set(coor_msg.msg.write_set, coor_msg.msg.txn_id)
+                                            .await;
+                                    }
+                                    coor_msg.call_back.send(reply);
                                 }
                             }
-                            let mut reply = Msg::default();
-                            reply.success = true;
-                            if self.dtx_type == DtxType::spanner {
-                                // lock the write set
-                                lock_write_set(coor_msg.msg.write_set, coor_msg.msg.txn_id).await;
-                            }
-                            coor_msg.call_back.send(reply);
                         }
                     },
                     None => {}

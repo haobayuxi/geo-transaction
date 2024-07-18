@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
@@ -33,6 +33,9 @@ use crate::{data::init_data, dep_graph::DepGraph, executor::Executor};
 pub static mut DATA: Vec<HashMap<u64, RwLock<Tuple>>> = Vec::new();
 pub static mut PEER: Vec<DataServiceClient<Channel>> = Vec::new();
 pub static mut MAX_COMMIT_TS: u64 = 0;
+pub static mut SAFE: u64 = 0;
+pub static mut WAITING: BTreeMap<u64, CoordnatorMsg> = BTreeMap::new();
+pub static mut LOCAL_CT: u64 = 0;
 
 pub struct RpcServer {
     executor_num: u64,
