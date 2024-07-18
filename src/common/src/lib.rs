@@ -118,6 +118,8 @@ pub enum DtxType {
     spanner,
     janus,
     ocean_vista,
+    mercury,
+    cockroachdb,
 }
 
 #[derive(Clone, Serialize, Deserialize, Copy)]

@@ -42,6 +42,10 @@ pub async fn connect_to_peer(data_ip: Vec<String>) -> Vec<DataServiceClient<Chan
     }
     return data_clients;
 }
+
+pub fn gen_future_timestamp() -> u64 {
+    get_currenttime_millis() + 0
+}
 pub struct DtxCoordinator {
     pub id: u64,
     pub local_ts: Arc<RwLock<u64>>,
@@ -114,13 +118,9 @@ impl DtxCoordinator {
         self.delete.clear();
         self.read_only = read_only;
         if read_only {
-            self.commit_ts = if self.geo {
-                get_currenttime_millis() + UNCERTAINTY
-            } else {
-                get_currenttime_micros() + LOCAL_UNCERTAINTY
-            };
+            self.commit_ts = get_currenttime_millis() + UNCERTAINTY;
         } else {
-            self.commit_ts = 0;
+            self.commit_ts = gen_future_timestamp();
         }
         self.fast_commit = true;
         self.deps.clear();
@@ -256,7 +256,7 @@ impl DtxCoordinator {
                 }
             }
             result = replies[0].read_set.clone();
-        } else if self.dtx_type == DtxType::ocean_vista {
+        } else if self.dtx_type == DtxType::ocean_vista || self.dtx_type == DtxType::mercury {
             //
             let execute = Msg {
                 txn_id: self.txn_id,
@@ -276,6 +276,28 @@ impl DtxCoordinator {
                 .unwrap();
 
             let reply: Msg = client.communication(execute).await.unwrap().into_inner();
+        } else if self.dtx_type == DtxType::cockroachdb {
+            let request = Msg {
+                txn_id: self.txn_id,
+                read_set: self.read_to_execute.clone(),
+                write_set,
+                op: TxnOp::Execute.into(),
+                success: true,
+                ts: Some(self.commit_ts),
+                deps: Vec::new(),
+                read_only: true,
+                insert: self.insert.clone(),
+                delete: self.delete.clone(),
+            };
+            // println!("client ts = {}", self.commit_ts);
+            let client = self
+                .data_clients
+                .get_mut(preferred_server_id as usize)
+                .unwrap();
+
+            let reply: Msg = client.communication(request).await.unwrap().into_inner();
+            success = reply.success;
+            result = reply.read_set;
         }
 
         self.read_set.extend(result.clone());

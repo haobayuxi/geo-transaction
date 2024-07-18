@@ -72,7 +72,7 @@ impl Executor {
                         rpc::common::TxnOp::Execute => {
                             let mut reply = coor_msg.msg.clone();
                             let ts = coor_msg.msg.ts();
-                            if coor_msg.msg.read_only && (self.dtx_type == DtxType::spanner) {
+                            if coor_msg.msg.read_only {
                                 let read_set = coor_msg.msg.read_set.clone();
                                 // need wait
                                 let local_clock = if self.geo {
@@ -80,142 +80,129 @@ impl Executor {
                                 } else {
                                     get_currenttime_micros()
                                 };
-                                if self.dtx_type == DtxType::spanner {
-                                    if ts > MAX_COMMIT_TS {
-                                        // wait
-                                        tokio::spawn(async move {
-                                            while ts > MAX_COMMIT_TS {
-                                                let wait_time = ts - MAX_COMMIT_TS;
-                                                // println!("ts{}, cts{}", ts, MAX_COMMIT_TS);
-                                                sleep(Duration::from_millis(wait_time)).await;
-                                            }
+                                match self.dtx_type {
+                                    DtxType::spanner => {
+                                        if ts > MAX_COMMIT_TS {
+                                            // wait
+                                            tokio::spawn(async move {
+                                                while ts > MAX_COMMIT_TS {
+                                                    let wait_time = ts - MAX_COMMIT_TS;
+                                                    // println!("ts{}, cts{}", ts, MAX_COMMIT_TS);
+                                                    sleep(Duration::from_millis(wait_time)).await;
+                                                }
+                                                let (success, read_result) =
+                                                    get_read_only(read_set).await;
+                                                reply.success = success;
+                                                reply.read_set = read_result;
+
+                                                coor_msg.call_back.send(reply);
+                                            });
+                                        } else {
                                             let (success, read_result) =
                                                 get_read_only(read_set).await;
                                             reply.success = success;
                                             reply.read_set = read_result;
 
                                             coor_msg.call_back.send(reply);
-                                        });
-                                    } else {
-                                        let (success, read_result) = get_read_only(read_set).await;
-                                        reply.success = success;
-                                        reply.read_set = read_result;
-
-                                        coor_msg.call_back.send(reply);
+                                        }
                                     }
-                                } else {
-                                    if ts > MAX_COMMIT_TS && ts > local_clock {
-                                        // local wait
-                                        let wait_time = min(ts - MAX_COMMIT_TS, ts - local_clock);
-                                        let geo = self.geo;
-                                        tokio::spawn(async move {
-                                            // println!("wait time {}", wait_time);
-                                            if geo {
-                                                sleep(Duration::from_millis(wait_time)).await;
-                                            } else {
-                                                sleep(Duration::from_micros(wait_time)).await;
-                                            }
+                                    DtxType::janus => {}
+                                    DtxType::ocean_vista => {
+                                        // wait for the commit ts > read only ts
+                                    }
+                                    DtxType::us => {
+                                        if ts > MAX_COMMIT_TS && ts > local_clock {
+                                            // local wait
+                                            let wait_time =
+                                                min(ts - MAX_COMMIT_TS, ts - local_clock);
+                                            let geo = self.geo;
+                                            tokio::spawn(async move {
+                                                // println!("wait time {}", wait_time);
+                                                if geo {
+                                                    sleep(Duration::from_millis(wait_time)).await;
+                                                } else {
+                                                    sleep(Duration::from_micros(wait_time)).await;
+                                                }
+                                                let (success, read_result) =
+                                                    get_read_only(read_set).await;
+                                                reply.success = success;
+                                                reply.read_set = read_result;
+
+                                                coor_msg.call_back.send(reply);
+                                            });
+                                        } else {
                                             let (success, read_result) =
                                                 get_read_only(read_set).await;
                                             reply.success = success;
                                             reply.read_set = read_result;
 
                                             coor_msg.call_back.send(reply);
-                                        });
-                                    } else {
-                                        let (success, read_result) = get_read_only(read_set).await;
-                                        reply.success = success;
-                                        reply.read_set = read_result;
-
-                                        coor_msg.call_back.send(reply);
+                                        }
                                     }
                                 }
                             } else {
-                                if self.dtx_type == DtxType::janus {
-                                    // init node
-                                    let txn_id = coor_msg.msg.txn_id;
-                                    let (client_id, index) = get_txnid(txn_id);
-                                    let mut last_index = TXNS[client_id as usize].len();
-                                    while index >= last_index as u64 {
-                                        let node = Node::default();
-                                        TXNS[client_id as usize].push(node);
-                                        last_index += 1;
-                                    }
-                                    let node = Node::new(coor_msg.msg.clone());
-                                    if TXNS[client_id as usize].len() as u64 == index + 1 {
-                                        //
-                                        TXNS[client_id as usize][index as usize] = node;
-                                    } else {
-                                        TXNS[client_id as usize].push(node);
-                                    }
-                                    let (success, deps, read_results) =
-                                        get_deps(coor_msg.msg).await;
-                                    reply.success = success;
-                                    reply.deps = deps.clone();
-                                    reply.read_set = read_results;
-                                    coor_msg.call_back.send(reply);
-                                } else if self.dtx_type == DtxType::spanner {
-                                    // lock the read set
-                                    let (success, read_result) = get_read_set(
-                                        coor_msg.msg.read_set.clone(),
-                                        coor_msg.msg.txn_id,
-                                        self.dtx_type,
-                                    )
-                                    .await;
-                                    // lock the write set
-
-                                    reply.success = success;
-                                    if !success {
-                                        // send back failure
-                                        reply.success = false;
-                                        coor_msg.call_back.send(reply);
-                                        continue;
-                                    }
-                                    reply.read_set = read_result;
-                                    if !coor_msg.msg.write_set.is_empty() {
-                                        let (success, mut read_write_set) = lock_write_set(
-                                            coor_msg.msg.write_set.clone(),
+                                match self.dtx_type {
+                                    DtxType::spanner => {
+                                        // lock the read set
+                                        let (success, read_result) = get_read_set(
+                                            coor_msg.msg.read_set.clone(),
                                             coor_msg.msg.txn_id,
+                                            self.dtx_type,
                                         )
                                         .await;
-                                        reply.read_set.append(&mut read_write_set);
-                                        reply.write_set = coor_msg.msg.write_set.clone();
-                                        reply.success = success;
-                                        self.accept(reply, coor_msg.call_back).await;
-                                    } else {
-                                        coor_msg.call_back.send(reply);
-                                    }
-                                } else {
-                                    // get the data and lock the write set
-                                    let ts = coor_msg.msg.ts();
-                                    reply.txn_id = self.server_id as u64;
-                                    let (success, read_result) = get_read_set(
-                                        coor_msg.msg.read_set.clone(),
-                                        coor_msg.msg.txn_id,
-                                        self.dtx_type,
-                                    )
-                                    .await;
-                                    if !success {
-                                        // send back failure
-                                        reply.success = false;
-                                        coor_msg.call_back.send(reply);
-                                        continue;
-                                    }
-                                    reply.read_set = read_result;
-                                    let (write_success, mut read_write_result) = lock_write_set(
-                                        coor_msg.msg.write_set.clone(),
-                                        coor_msg.msg.txn_id,
-                                    )
-                                    .await;
-                                    reply.read_set.append(&mut read_write_result);
-                                    // println!("reply {} {}", reply.read_set.len(), write_success);
-                                    reply.success = if self.server_id == 2 {
-                                        write_success
-                                    } else {
-                                        true
-                                    };
+                                        // lock the write set
 
-                                    coor_msg.call_back.send(reply);
+                                        reply.success = success;
+                                        if !success {
+                                            // send back failure
+                                            reply.success = false;
+                                            coor_msg.call_back.send(reply);
+                                            continue;
+                                        }
+                                        reply.read_set = read_result;
+                                        if !coor_msg.msg.write_set.is_empty() {
+                                            let (success, mut read_write_set) = lock_write_set(
+                                                coor_msg.msg.write_set.clone(),
+                                                coor_msg.msg.txn_id,
+                                            )
+                                            .await;
+                                            reply.read_set.append(&mut read_write_set);
+                                            reply.write_set = coor_msg.msg.write_set.clone();
+                                            reply.success = success;
+                                            self.accept(reply, coor_msg.call_back).await;
+                                        } else {
+                                            coor_msg.call_back.send(reply);
+                                        }
+                                    }
+                                    DtxType::janus => {
+                                        // init node
+                                        let txn_id = coor_msg.msg.txn_id;
+                                        let (client_id, index) = get_txnid(txn_id);
+                                        let mut last_index = TXNS[client_id as usize].len();
+                                        while index >= last_index as u64 {
+                                            let node = Node::default();
+                                            TXNS[client_id as usize].push(node);
+                                            last_index += 1;
+                                        }
+                                        let node = Node::new(coor_msg.msg.clone());
+                                        if TXNS[client_id as usize].len() as u64 == index + 1 {
+                                            //
+                                            TXNS[client_id as usize][index as usize] = node;
+                                        } else {
+                                            TXNS[client_id as usize].push(node);
+                                        }
+                                        let (success, deps, read_results) =
+                                            get_deps(coor_msg.msg).await;
+                                        reply.success = success;
+                                        reply.deps = deps.clone();
+                                        reply.read_set = read_results;
+                                        coor_msg.call_back.send(reply);
+                                    }
+                                    DtxType::ocean_vista => {
+                                        // broadcast to all to accept
+                                        
+                                    }
+                                    DtxType::us => {}
                                 }
                             }
                         }
