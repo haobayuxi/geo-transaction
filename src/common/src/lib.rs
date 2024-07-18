@@ -47,7 +47,7 @@ pub struct Tuple {
     pub last_accessed: u64,
     pub ts: u64,
     pub data: String,
-    // meerkat meta
+    // meerkat and cockroachdb meta
     pub prepared_read: BTreeSet<u64>,
     pub prepared_write: BTreeSet<u64>,
     pub rts: u64,

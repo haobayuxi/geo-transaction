@@ -198,6 +198,53 @@ pub async fn releass_locks(msg: Msg, dtx_type: DtxType) {
     }
 }
 
+pub async fn get_deg_ts(msg: Msg) -> u64 {
+    unsafe {
+        let mut ts = msg.ts();
+
+        for read in msg.read_set.iter() {
+            let table = &mut DATA[read.table_id as usize];
+            match table.get_mut(&read.key) {
+                Some(lock) => {
+                    let mut guard: tokio::sync::RwLockWriteGuard<Tuple> = lock.write().await;
+                    if guard.prepared_write.last() < msg.ts() {
+                        guard.prepared_read.insert(msg.ts());
+                    } else {
+                        if ts < guard.prepared_write.last() + 1 {
+                            ts = guard.prepared_write.last() + 1
+                        }
+                        guard.prepared_read.insert(msg.ts());
+                    }
+                }
+                None => {
+                    return (false, deps, read_results);
+                }
+            }
+        }
+
+        for write in msg.write_set.iter() {
+            let table = &mut DATA[write.table_id as usize];
+            match table.get_mut(&write.key) {
+                Some(lock) => {
+                    let mut guard = lock.write().await;
+                    if guard.prepared_read.last() < msg.ts() {
+                        guard.prepared_write.insert(msg.ts());
+                    } else {
+                        if ts < guard.prepared_read.last() + 1 {
+                            ts = guard.prepared_read.last() + 1
+                        }
+                        guard.prepared_write.insert(msg.ts());
+                    }
+                }
+                None => {
+                    return (false, deps, read_results);
+                }
+            }
+        }
+        return ts;
+    }
+}
+
 pub async fn get_deps(msg: Msg) -> (bool, Vec<u64>, Vec<ReadStruct>) {
     unsafe {
         let mut deps = Vec::new();
