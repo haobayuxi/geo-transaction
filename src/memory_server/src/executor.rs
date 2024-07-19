@@ -143,7 +143,7 @@ impl Executor {
                                             coor_msg.call_back.send(reply);
                                         } else {
                                             // insert into waiting list
-                                            WAITING.insert(new_msg.ts(), new_msg);
+                                            WAITING.insert(new_msg.ts(), coor_msg);
                                         }
                                     }
                                     DtxType::mercury => {
@@ -157,7 +157,7 @@ impl Executor {
                                             coor_msg.call_back.send(reply);
                                         } else {
                                             // insert into waiting list
-                                            WAITING.insert(new_msg.ts(), new_msg);
+                                            WAITING.insert(new_msg.ts(), coor_msg);
                                         }
                                     }
                                     DtxType::cockroachdb => {}
@@ -235,7 +235,7 @@ impl Executor {
                                         let mut new_msg = coor_msg.msg.clone();
                                         // check conflict ts
                                         let ts = get_deg_ts(new_msg.clone()).await;
-                                        reply.success = success;
+                                        reply.success = true;
                                         reply.ts = Some(ts);
                                         coor_msg.call_back.send(reply);
                                     }

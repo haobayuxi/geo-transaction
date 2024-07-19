@@ -52,6 +52,13 @@ pub struct Ts {
     #[prost(uint64, tag = "1")]
     pub ts: u64,
 }
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GossipMessage {
+    #[prost(uint64, tag = "1")]
+    pub ts: u64,
+    #[prost(uint64, repeated, tag = "2")]
+    pub t_ids: ::prost::alloc::vec::Vec<u64>,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum TxnOp {
@@ -106,6 +113,20 @@ pub mod data_service_client {
             })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/common.DataService/communication");
+            self.inner.unary(request.into_request(), path, codec).await
+        }
+        pub async fn gossip(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GossipMessage>,
+        ) -> Result<tonic::Response<super::Echo>, tonic::Status> {
+            self.inner.ready().await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Unknown,
+                    format!("Service was not ready: {}", e.into()),
+                )
+            })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/common.DataService/gossip");
             self.inner.unary(request.into_request(), path, codec).await
         }
     }
@@ -270,6 +291,10 @@ pub mod data_service_server {
             &self,
             request: tonic::Request<super::Msg>,
         ) -> Result<tonic::Response<super::Msg>, tonic::Status>;
+        async fn gossip(
+            &self,
+            request: tonic::Request<super::GossipMessage>,
+        ) -> Result<tonic::Response<super::Echo>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct DataServiceServer<T: DataService> {
@@ -320,6 +345,37 @@ pub mod data_service_server {
                         let interceptor = inner.1.clone();
                         let inner = inner.0;
                         let method = communicationSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = if let Some(interceptor) = interceptor {
+                            tonic::server::Grpc::with_interceptor(codec, interceptor)
+                        } else {
+                            tonic::server::Grpc::new(codec)
+                        };
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/common.DataService/gossip" => {
+                    #[allow(non_camel_case_types)]
+                    struct gossipSvc<T: DataService>(pub Arc<T>);
+                    impl<T: DataService> tonic::server::UnaryService<super::GossipMessage> for gossipSvc<T> {
+                        type Response = super::Echo;
+                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::GossipMessage>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move { (*inner).gossip(request).await };
+                            Box::pin(fut)
+                        }
+                    }
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let interceptor = inner.1.clone();
+                        let inner = inner.0;
+                        let method = gossipSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = if let Some(interceptor) = interceptor {
                             tonic::server::Grpc::with_interceptor(codec, interceptor)

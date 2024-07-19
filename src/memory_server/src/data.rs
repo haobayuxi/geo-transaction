@@ -207,17 +207,24 @@ pub async fn get_deg_ts(msg: Msg) -> u64 {
             match table.get_mut(&read.key) {
                 Some(lock) => {
                     let mut guard: tokio::sync::RwLockWriteGuard<Tuple> = lock.write().await;
-                    if guard.prepared_write.last() < msg.ts() {
-                        guard.prepared_read.insert(msg.ts());
-                    } else {
-                        if ts < guard.prepared_write.last() + 1 {
-                            ts = guard.prepared_write.last() + 1
+                    match guard.prepared_write.last() {
+                        Some(write) => {
+                            if *write < msg.ts() {
+                                guard.prepared_read.insert(msg.ts());
+                            } else {
+                                if ts < *write + 1 {
+                                    ts = *write + 1;
+                                }
+                                guard.prepared_read.insert(msg.ts());
+                            }
                         }
-                        guard.prepared_read.insert(msg.ts());
+                        None => {
+                            guard.prepared_read.insert(msg.ts());
+                        }
                     }
                 }
                 None => {
-                    return (false, deps, read_results);
+                    return 0;
                 }
             }
         }
@@ -227,17 +234,24 @@ pub async fn get_deg_ts(msg: Msg) -> u64 {
             match table.get_mut(&write.key) {
                 Some(lock) => {
                     let mut guard = lock.write().await;
-                    if guard.prepared_read.last() < msg.ts() {
-                        guard.prepared_write.insert(msg.ts());
-                    } else {
-                        if ts < guard.prepared_read.last() + 1 {
-                            ts = guard.prepared_read.last() + 1
+                    match guard.prepared_read.last() {
+                        Some(read) => {
+                            if *read < msg.ts() {
+                                guard.prepared_write.insert(msg.ts());
+                            } else {
+                                if ts < *read + 1 {
+                                    ts = *read + 1;
+                                }
+                                guard.prepared_write.insert(msg.ts());
+                            }
                         }
-                        guard.prepared_write.insert(msg.ts());
+                        None => {
+                            guard.prepared_write.insert(msg.ts());
+                        }
                     }
                 }
                 None => {
-                    return (false, deps, read_results);
+                    return 0;
                 }
             }
         }

@@ -14,7 +14,7 @@ use common::{
 use rpc::common::{
     data_service_client::DataServiceClient,
     data_service_server::{DataService, DataServiceServer},
-    Echo, Msg, TxnOp,
+    Echo, GossipMessage, Msg, TxnOp,
 };
 use tokio::{
     sync::{
@@ -28,7 +28,7 @@ use tonic::{
     Request, Response, Status,
 };
 
-use crate::{data::init_data, dep_graph::DepGraph, executor::Executor};
+use crate::{data::init_data, dep_graph::DepGraph, executor::Executor, gossiper::Gossip};
 
 pub static mut DATA: Vec<HashMap<u64, RwLock<Tuple>>> = Vec::new();
 pub static mut PEER: Vec<DataServiceClient<Channel>> = Vec::new();
@@ -41,6 +41,7 @@ pub struct RpcServer {
     executor_num: u64,
     addr_to_listen: String,
     sender: Arc<HashMap<u64, UnboundedSender<CoordnatorMsg>>>,
+    gossip_sender: UnboundedSender<GossipMessage>,
 }
 
 impl RpcServer {
@@ -48,11 +49,13 @@ impl RpcServer {
         executor_num: u64,
         addr_to_listen: String,
         sender: Arc<HashMap<u64, UnboundedSender<CoordnatorMsg>>>,
+        gossip_sender: UnboundedSender<GossipMessage>,
     ) -> Self {
         Self {
             executor_num,
             sender,
             addr_to_listen,
+            gossip_sender,
         }
     }
 }
@@ -81,6 +84,12 @@ impl DataService for RpcServer {
         self.sender.get(&executor_id).unwrap().send(coor_msg);
         let reply = receiver.await.unwrap();
         Ok(Response::new(reply))
+    }
+
+    async fn gossip(&self, request: Request<GossipMessage>) -> Result<Response<Echo>, Status> {
+        self.gossip_sender.send(request.into_inner());
+        let e = Echo { success: true };
+        Ok(Response::new(e))
     }
 }
 
@@ -119,6 +128,7 @@ impl DataServer {
     async fn init_rpc(
         &mut self,
         executor_senders: Arc<HashMap<u64, UnboundedSender<CoordnatorMsg>>>,
+        gossip_sender: UnboundedSender<GossipMessage>,
     ) {
         // start server for client to connect
         let listen_ip = if self.geo {
@@ -127,7 +137,12 @@ impl DataServer {
             self.config.server_addr[self.server_id as usize].clone()
         };
         println!("server listen ip {}", listen_ip);
-        let server = RpcServer::new(self.executor_num, listen_ip, executor_senders);
+        let server = RpcServer::new(
+            self.executor_num,
+            listen_ip,
+            executor_senders,
+            gossip_sender,
+        );
         if self.dtx_type == DtxType::spanner && self.server_id == 2 {
             //
             let mut data_ip = if self.geo {
@@ -208,7 +223,12 @@ impl DataServer {
         }
         init_data(db_type, self.client_num);
         self.init_executors(dtx_type).await;
-        self.init_rpc(Arc::new(self.executor_senders.clone())).await;
+        let (gossip_sender, gossip_recv) = unbounded_channel::<GossipMessage>();
+        self.init_rpc(Arc::new(self.executor_senders.clone()), gossip_sender).await;
+        // gossip
+        let gossip = Gossip{
+            receiver: gossip_recv,
+        };
         // while (true) {
         //     sleep(Duration::from_millis(1)).await;
         // }

@@ -297,7 +297,8 @@ impl DtxCoordinator {
 
             let reply: Msg = client.communication(request).await.unwrap().into_inner();
             success = reply.success;
-            result = reply.read_set;
+            result = reply.read_set.clone();
+            self.commit_ts = reply.ts();
         }
 
         self.read_set.extend(result.clone());
@@ -319,20 +320,6 @@ impl DtxCoordinator {
             write_set.push(iter.read().await.clone());
         }
         if self.dtx_type == DtxType::spanner {
-            // let write_lock = Msg {
-            //     txn_id: self.txn_id,
-            //     read_set: Vec::new(),
-            //     write_set: write_set.clone(),
-            //     op: TxnOp::Execute.into(),
-            //     success: true,
-            //     ts: Some(self.commit_ts),
-            //     deps: self.deps.clone(),
-            //     read_only: false,
-            //     insert: self.insert.clone(),
-            //     delete: self.delete.clone(),
-            // };
-            // let client = self.data_clients.get_mut(LEADER_ID).unwrap();
-            // let _ = client.communication(write_lock).await;
             GLOBAL_COMMITTED.fetch_add(1, Ordering::Relaxed);
             let commit = Msg {
                 txn_id: self.txn_id,

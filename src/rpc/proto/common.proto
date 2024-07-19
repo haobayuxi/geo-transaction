@@ -49,8 +49,15 @@ message Latencies {
 message TS{
     uint64 ts = 1;
 }
+
+message GossipMessage{
+    uint64 ts = 1;
+    repeated uint64 t_ids = 2;
+}
+
 service DataService {
     rpc communication(Msg) returns (Msg) {} 
+    rpc gossip(GossipMessage) returns (Echo) {} 
 }
 service CtoService {
     rpc get_start_ts(Echo) returns(TS) {}
@@ -61,6 +68,4 @@ service ThroughputStatisticsService {
     rpc get(Echo) returns (Throughput) {}
 }
 
-service GossipService {
-    rpc communication(Ts) returns () {} 
-}
+
