@@ -231,6 +231,7 @@ impl DataServer {
             receiver: gossip_recv,
             ts: Vec::new(),
             id: self.server_id,
+            dtx: self.dtx_type,
         };
         // while (true) {
         //     sleep(Duration::from_millis(1)).await;

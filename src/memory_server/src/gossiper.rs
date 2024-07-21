@@ -6,7 +6,7 @@ use tokio::sync::mpsc::{unbounded_channel, Sender, UnboundedReceiver};
 use tokio::{sync::oneshot::Sender as OneShotSender, time::sleep};
 use tonic::transport::Channel;
 
-use crate::data::{get_deg_ts, get_dep_ts};
+use crate::data::get_dep_ts;
 use crate::data_server::{LOCAL_CT, SAFE, WAITING};
 use crate::{
     data::{
@@ -21,6 +21,7 @@ pub struct Gossip {
     pub receiver: UnboundedReceiver<GossipMessage>,
     pub ts: Vec<u64>,
     pub id: u32,
+    pub dtx: DtxType,
 }
 
 impl Gossip {
@@ -35,6 +36,27 @@ impl Gossip {
                     unsafe {
                         SAFE = self.ts[1];
                     }
+                    if self.dtx == DtxType::ocean_vista {
+                        loop {
+                            unsafe {
+                                match WAITING.pop_first() {
+                                    Some((ts, coor_msg)) => {
+                                        if coor_msg.msg.ts() < SAFE {
+                                            // get dep
+                                            let mut reply = coor_msg.msg.clone();
+
+                                            reply.deps.push(get_dep_ts(reply.clone()).await);
+                                            coor_msg.call_back.send(reply);
+                                        } else {
+                                            WAITING.insert(ts, coor_msg);
+                                            break;
+                                        }
+                                    }
+                                    None => break,
+                                }
+                            }
+                        }
+                    }
                 }
                 None => {
                     // error channel close
@@ -46,10 +68,21 @@ impl Gossip {
     pub async fn gossip_to_others(&self) {
         unsafe {
             let data_clients = PEER.clone();
-            let gossip = GossipMessage {
-                ts: 0,
-                t_ids: Vec::new(),
-                from: self.id,
+            let gossip = if self.dtx == DtxType::mercury {
+                GossipMessage {
+                    ts: LOCAL_CT,
+                    t_ids: Vec::new(),
+                    from: self.id,
+                }
+            } else {
+                GossipMessage {
+                    ts: match WAITING.last_key_value() {
+                        Some((ts, msg)) => *ts,
+                        None => 0,
+                    },
+                    t_ids: Vec::new(),
+                    from: self.id,
+                }
             };
             async_broadcast(gossip, data_clients).await;
         }
