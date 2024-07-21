@@ -53,6 +53,7 @@ message TS{
 message GossipMessage{
     uint64 ts = 1;
     repeated uint64 t_ids = 2;
+    uint32 from = 3;
 }
 
 service DataService {

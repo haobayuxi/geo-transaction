@@ -224,10 +224,13 @@ impl DataServer {
         init_data(db_type, self.client_num);
         self.init_executors(dtx_type).await;
         let (gossip_sender, gossip_recv) = unbounded_channel::<GossipMessage>();
-        self.init_rpc(Arc::new(self.executor_senders.clone()), gossip_sender).await;
+        self.init_rpc(Arc::new(self.executor_senders.clone()), gossip_sender)
+            .await;
         // gossip
-        let gossip = Gossip{
+        let gossip = Gossip {
             receiver: gossip_recv,
+            ts: Vec::new(),
+            id: self.server_id,
         };
         // while (true) {
         //     sleep(Duration::from_millis(1)).await;

@@ -5,7 +5,7 @@ use tokio::sync::mpsc::{unbounded_channel, Sender, UnboundedReceiver};
 use tokio::{sync::oneshot::Sender as OneShotSender, time::sleep};
 use tonic::transport::Channel;
 
-use crate::data::get_deg_ts;
+use crate::data::get_dep_ts;
 use crate::data_server::{SAFE, WAITING};
 use crate::{
     data::{
@@ -234,7 +234,7 @@ impl Executor {
                                     DtxType::cockroachdb => {
                                         let mut new_msg = coor_msg.msg.clone();
                                         // check conflict ts
-                                        let ts = get_deg_ts(new_msg.clone()).await;
+                                        let ts = get_dep_ts(new_msg.clone()).await;
                                         reply.success = true;
                                         reply.ts = Some(ts);
                                         coor_msg.call_back.send(reply);

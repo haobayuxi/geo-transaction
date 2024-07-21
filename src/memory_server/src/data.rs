@@ -198,7 +198,7 @@ pub async fn releass_locks(msg: Msg, dtx_type: DtxType) {
     }
 }
 
-pub async fn get_deg_ts(msg: Msg) -> u64 {
+pub async fn get_dep_ts(msg: Msg) -> u64 {
     unsafe {
         let mut ts = msg.ts();
 

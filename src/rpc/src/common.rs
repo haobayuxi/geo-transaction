@@ -58,6 +58,8 @@ pub struct GossipMessage {
     pub ts: u64,
     #[prost(uint64, repeated, tag = "2")]
     pub t_ids: ::prost::alloc::vec::Vec<u64>,
+    #[prost(uint32, tag = "3")]
+    pub from: u32,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
