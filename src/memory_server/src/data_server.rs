@@ -227,12 +227,15 @@ impl DataServer {
         self.init_rpc(Arc::new(self.executor_senders.clone()), gossip_sender)
             .await;
         // gossip
-        let gossip = Gossip {
+        let mut gossip = Gossip {
             receiver: gossip_recv,
             ts: Vec::new(),
             id: self.server_id,
             dtx: self.dtx_type,
         };
+        tokio::spawn(async move {
+            gossip.run().await;
+        });
         // while (true) {
         //     sleep(Duration::from_millis(1)).await;
         // }
